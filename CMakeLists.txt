@@ -4,11 +4,11 @@ cmake_minimum_required (VERSION 3.5)
 
 add_definitions(-std=c++11)
 
-set(CXX_FLAGS "-Wall")
+set(CXX_FLAGS "-Wall -Werror=return-type")
 set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
 set(sources src/main.cpp)
-
+set(sources_test src/test.cpp)
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin") 
 
@@ -20,7 +20,7 @@ link_directories(/usr/local/Cellar/libuv/1.11.0/lib)
 
 endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin") 
 
-
 add_executable(path_planning ${sources})
+add_executable(run_test ${sources_test})
 
 target_link_libraries(path_planning z ssl uv uWS)
