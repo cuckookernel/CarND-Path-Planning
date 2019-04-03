@@ -5,6 +5,7 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
+
 #include "helpers.h"
 #include "json.hpp"
 
@@ -14,102 +15,82 @@ using std::string;
 using std::vector;
 using std::cout;
 using std::endl;
+using std::tie; // assignment from tuple!
 
-Trajectory2D decide_on_action( MsgInfo& m, const MapUtil& map, const Trajectory2D& last_trajectory ) {
-    // j[1] is the data JSON object
-    // if( verbose ) {
-    // cout << "\n\n\n msg " << msg_cnt << "\n"<< j.dump( ) << "\n\n" << endl;
-    // }
-    int sub_sample = 36;   
-    double a0 = NaN;
-    int cnt_consumed = last_trajectory.size() - m.previous_path_x.size();
 
-    // cout << "|last_traj| = " << last_trajectory.size()  << " cnt_consumed= " << cnt_consumed << endl;
-    
-    if( last_trajectory.size() < 3 || cnt_consumed < 3 )  {
-       a0 = 0.0;
-    } else { // estimate acceleration at the end of consumed trajectory
-       auto p2 = last_trajectory.as_point(cnt_consumed); // first not consumed, coincides with m.previous_path[0]
-       auto p1 = last_trajectory.as_point(cnt_consumed - 1);
-       auto p0 = last_trajectory.as_point(cnt_consumed - 2);
-       a0 = (((p2 - p1) - (p1 - p0)) / (DT * DT)).norm(); 
-       
-       cout << "cnt_consumed= "  << cnt_consumed 
-          << "  p0=" << p0  << "  p1=" << p1 << " p2=" <<  p2 // << "p3: " << p3
-          << "  v01=" << ((p1 - p0) / DT).norm() << "  v12: " << ((p2 -p1)/ DT).norm()
-          << "\nprevious_path[0]: " << Point2D(m.previous_path_x[0],m.previous_path_y[1]) 
-          << "  a0=" << a0  
-          <<  endl;
+Trajectory2D decide_on_action( const MsgInfo& m, const MapUtil& map, State& state) {
+        
+    int cur_lane = which_lane( m.car_fr );    
+    int new_lane = evaluate_lane_change_v1( m, state ); 
+
+    if( new_lane != cur_lane ) {
+      cout << "decided to switch lane! to " << new_lane; 
+      state.lane = new_lane;
+      state.clock_last_lane_change = state.clock; 
+    }
+    else {  // decided to stay in lane
+      bool want_to_break = maybe_break_because_car_in_front( which_lane( m.car_fr ), m , state );
+
+      if( want_to_break && state.ref_speed > AARONS_ACCEL ) {
+        state.ref_speed -= AARONS_ACCEL;       
+      } else if(  state.ref_speed < MAX_SPEED ) {
+        state.ref_speed += AARONS_ACCEL;
+      }    
     }
     
-    cout << "\n\ncar(x: "<< m.car_p.x << " y: " << m.car_p.y << " s: " << m.car_fr.s << " d: " 
-          << m.car_fr.d << ") car_speed: " << m.car_speed << " m/s "<< endl;
+    cout << format_clock_time( state.clock ) << " " 
+         << std::setprecision(3) << " car_speed: " << mps2mph( m.car_speed ) 
+         << " mph, ref_speed: "  << mps2mph( state.ref_speed ) << " mph "
+         << " lane_change: "     << (new_lane != cur_lane) 
+         << "  last consumed: "  << (AARONS_N_POINTS - m.prev_size) << endl;
 
-    const auto lane_change = evaluate_lane_change( m, false );
+    Trajectory2D ret = gen_trajectory_aaron_style( m, map, state );
+
+    /* const auto lane_change = evaluate_lane_change( m, false );
     const auto ln_change_coll_time = lane_change.second; 
 
     if( ln_change_coll_time > MIN_CHANGE_LANE_TIME ){
-      int cur_lane = getLane( m.car_fr );
+      int cur_lane = which_lane( m.car_fr );
       cout << "cur_lane: " << cur_lane  << "  best lane for change: " << lane_change.first 
           << " (collision time " << lane_change.second << ")" << endl;  
     
-      double target_d = ( lane_change.first + 0.5 ) * LANE_WIDTH;
-    
-      return accelerate_to( m.car_fr, 
-                                    /*target_d */ target_d,
-                                    /* v0 = */ m.car_speed, 
-                                    /* v1 = */ MAX_V, 
-                                    /* a0 = */ a0, 
-                                    /*target_tm*/ 5, 
-                                    /*subsample*/ sub_sample ).toXY( map ).interpolate( DT ) ;
-    } else { //  stay in lane down
-      auto car_in_front = info_car_in_front( m, false );
-      auto stay_coll_time = car_in_front.first;
-      auto target_speed = ( !isnan( car_in_front.second ) ? car_in_front.second : MAX_V ) ;
-      auto target_tm    = ( !isnan( car_in_front.second ) ? stay_coll_time * 0.75 : 5.0 ) ;
+      state.lane =  lane_change.first;  
+      
+      return gen_trajectory_aaron_style( m, map, state );
 
-      cout << "Should stay in lane and slow down: car in front speed:  "<< target_speed 
+    } else { //  stay in lane down
+      double stay_coll_time; // time after which we will collide with car in front 
+      double c_in_front_speed; // speed of car in front
+      tie( stay_coll_time, c_in_front_speed ) = info_car_in_front( m, false );      
+      auto tgt_speed = ( !isnan( c_in_front_speed ) ? c_in_front_speed : MAX_V ) ;
+      auto tgt_tm    = ( !isnan( c_in_front_speed ) ? stay_coll_time * 0.75 : 5.0 ) ;
+
+      cout << "Should stay in lane and slow down: car in front speed:  "<< tgt_speed 
             << " coll_time " << stay_coll_time << " <<<<<<<<<<!!!!!! " << endl; 
       
-      return  accelerate_to( m.car_fr, 
-                              /*target_d */ (getLane( m.car_fr ) + 0.5) * LANE_WIDTH,
-                              /* v0 = */ m.car_speed, 
-                              /* v1 = */ target_speed, 
-                              /* a0 = */ a0,
-                              /*target_tm*/ target_tm,
-                              /*subsambple*/ sub_sample ).toXY( map ).interpolate( DT );
-    }       
+      
+      state.ref_speed = c_in_front_speed; 
+      return gen_trajectory_aaron_style( m, map, state);
+    }  */ 
+
+    return ret; 
+
 }
 
 
 int main() {
   uWS::Hub h;
-  MapUtil map; 
+  
   int msg_cnt = 0; 
-
   // Waypoint map to read from
-  string map_file_ = "../data/highway_map.csv";
+  string map_file = "../data/highway_map.csv";
   // The max s value before wrapping around the track back to 0
   // double max_s = 6945.554;
+  MapUtil map; 
+  load_map( map_file, map );
 
-  std::ifstream in_map_(map_file_.c_str(), std::ifstream::in);
-
-  string line;
-
-  Trajectory2D last_trajectory; 
-
-  while (getline(in_map_, line)) {
-    std::istringstream iss(line);
-    double x, y;  
-    float s, d_x, d_y;
-    
-    iss >> x >> y >> s >> d_x >> d_y;
-    map.xys.push_back(Point2D(x, y));
-    map.ss.push_back(s);
-    map.dxys.push_back(Point2D(d_x, d_y));    
-  }
-
-  h.onMessage([&map, &msg_cnt, &last_trajectory](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  State state; 
+  h.onMessage([&map, &msg_cnt, &state](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -124,10 +105,15 @@ int main() {
         
         if (event == "telemetry") {
           MsgInfo m = extra_info_from_msg( j );
+          state.clock += DT * (AARONS_N_POINTS - m.prev_size);
+          Trajectory2D traj = decide_on_action( m, map, state );
           json msgJson;
-
+          msgJson["next_x"] = traj.xs();
+          msgJson["next_y"] = traj.ys();
+          
+          /* old version 
           if( m.previous_path_x.size() < 100 ){
-            Trajectory2D traj = decide_on_action( m, map, last_trajectory );
+            Trajectory2D traj = decide_on_action( m, map, last_trajectory, state);
             msgJson["next_x"] = traj.xs();
             msgJson["next_y"] = traj.ys();
             
@@ -137,6 +123,7 @@ int main() {
             msgJson["next_x"] = m.previous_path_x;
             msgJson["next_y"] = m.previous_path_y;            
           }
+          */ 
 
           auto msg = "42[\"control\","+ msgJson.dump()+"]";
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT); 

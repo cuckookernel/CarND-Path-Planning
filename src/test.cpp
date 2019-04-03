@@ -41,7 +41,7 @@ bool examine_trajectory( const TT& traj, bool verbose = false ) {
         
     auto jerk = (i > 3 ? (a - prev_a) / dt : PT{0,0} );
 
-    if( (v.norm() > MAX_V) || ( a.norm() > MAX_ACCEL ) || (jerk.norm() > MAX_JERK) ) {
+    if( (v.norm() > MAX_SPEED) || ( a.norm() > MAX_ACCEL ) || (jerk.norm() > MAX_JERK) ) {
       success = false;
     }
     
@@ -51,7 +51,7 @@ bool examine_trajectory( const TT& traj, bool verbose = false ) {
            << "  |v| = " << v.norm() 
            << "  |a| = " << a.norm()  << " a_n= " << a_n  << " a_d = " << a_d 
            << "  |j| = " << jerk.norm() 
-           << ( v.norm() > MAX_V ? " max speed violation!" : "")  
+           << ( v.norm() > MAX_SPEED ? " max speed violation!" : "")  
            << ( a.norm() > 10    ? " max acceleration violation!" : "") 
            << ( jerk.norm() > 10 ? " max jerk violation! " : "") << endl;           
     }
@@ -66,8 +66,27 @@ bool examine_trajectory( const TT& traj, bool verbose = false ) {
 }
 
 
-
 int main() {
+
+  QTrajGen qtg(1, 5, 17);
+
+  double T = 2; 
+
+  qtg.solve( 10, 7, 23, T);
+
+  cout << "t=" << 0 <<  " p=" << qtg(0) << "  v=" << qtg.vel(0) << "  a=" << qtg.accel(0) << endl;
+  cout << "t=" << T <<  " p=" << qtg(T) << "  v=" << qtg.vel(T) << "  a=" << qtg.accel(T) << endl;
+
+
+  qtg = QTrajGen(2, 4, 13);
+  
+  qtg.solve( 15, 6, 28, T);
+
+  cout << "t=" << 0 <<  " p=" << qtg(0) << "  v=" << qtg.vel(0) << "  a=" << qtg.accel(0) << endl;
+  cout << "t=" << T <<  " p=" << qtg(T) << "  v=" << qtg.vel(T) << "  a=" << qtg.accel(T) << endl;
+}
+
+int main1() {
  
   MapUtil map; 
 
@@ -90,12 +109,14 @@ int main() {
     map.dxys.push_back(Point2D(d_x, d_y));    
   }
 
-  auto trajectory_fr = accelerate_to( PointFr{0.0, 0.0}, 0, 
-                                      /* v0 = */ 0.0, 
-                                      /* v1 = */ MAX_V, 
-                                      /* a0 = */ 0, 
-                                      /*target_tm*/ 10 /* m/s^2 */,
-                                      /* subsample */ 9  );
+  /* 
+  auto trajectory_fr = accelerate_to( PointFr{0.0, 0.0}, 
+                                      /* v0 = * / PointFr{0.0, 0.0}, 
+                                      /* a0 = * / PointFr{0.0, 0.0}, 
+                                      /* tgt_d * / 0,                                     
+                                      /* tgt_speed = * / MAX_V,                                       
+                                      /* tgt_tm* / 10 /* m/s^2 * /,
+                                      /* subsample * / 9  );
 
   cout << "\n\n\n Examining trajectory frenet" << endl;
   bool success = examine_trajectory<TrajectoryFr, PointFr>( trajectory_fr, true );
@@ -105,4 +126,5 @@ int main() {
   auto trajectory_2d = trajectory_fr.toXY( map ).interpolate( DT );  
   success = examine_trajectory<Trajectory2D, Point2D>( trajectory_2d, true );
   cout << "success 2d: " << success << endl;
+  */ 
 }
