@@ -16,7 +16,7 @@ double lane_center( int lane_num );
 class PointFr;
 int  which_lane( const PointFr& );
 
-class QuarticTrajectoryGen  {
+class QuarticTrajectoryGen  { // ignore - not used in final solution 
 
     double _s0 = NaN;
     double _v0 = NaN; 
@@ -71,7 +71,7 @@ class QuarticTrajectoryGen  {
 };
 
 
-class QTrajGen  {
+class QTrajGen  { // ignore: not used in final solution 
 
   vector<double> coefs; 
   double _t1;
